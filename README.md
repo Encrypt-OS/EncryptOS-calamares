@@ -9,14 +9,9 @@ used by the following PKGBUILD's:
 
 1. Calamares package itself:
 
-https://github.com/Encrypt-OS/PKGBUILDS/tree/master/calamares_current
+https://github.com/Encrypt-OS/PKGBUILDS/tree/main/calamares_current
 
 2. EncryptOS specific configurations for default installs:
 
-https://github.com/Encrypt-OS/PKGBUILDS/tree/master/calamares_config_default
-
-3. splitting out Community related configurations to be able to update on the run:
-
-https://github.com/Encrypt-OS/PKGBUILDS/tree/master/calamares_config_ce
-
+https://github.com/Encrypt-OS/PKGBUILDS/tree/main/calamares_config_default
 
