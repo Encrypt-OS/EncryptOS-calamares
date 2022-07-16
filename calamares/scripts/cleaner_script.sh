@@ -1,53 +1,19 @@
 #!/usr/bin/env bash
 
-# Made by fernandomaroto for EncryptOS and Portergos
-# Adapted from AIS. An excellent bit of code!
-# ISO-NEXT specific cleanup removals and additions (08-2021) @killajoe and @manuel
-# 01-2022 passing in root path and username as params - @dalto
+# EncryptOS
 
-_cleaner_msg() {            # use this to provide all user messages (info, warning, error, ...)
+# Anything to be executed outside chroot need to be here.
+
+_cleaner_msg() {            # use this function to provide all user messages (info, warning, error, ...)
     local type="$1"
     local msg="$2"
     echo "==> $type: $msg"
 }
 
-# parse the options
-for i in "$@"; do
-    case $i in
-        --root=*)
-            ROOT_PATH="${i#*=}"
-            shift
-        ;;
-        --user=*)
-            NEW_USER="${i#*=}"
-            shift
-        ;;
-    esac
-done
-
-if [ -f /tmp/chrootpath.txt ]
-then
-    chroot_path=$(echo ${ROOT_PATH} |sed 's/\/tmp\///')
-else
-    chroot_path=$(lsblk |grep "calamares-root" |awk '{ print $NF }' |sed -e 's/\/tmp\///' -e 's/\/.*$//' |tail -n1)
-fi
-
-if [ -z "$chroot_path" ] ; then
-    _cleaner_msg "Fatal error" "cleaner_script.sh: chroot_path is empty!"
-fi
-
-arch_chroot(){
-# Use chroot not arch-chroot because of the way calamares mounts partitions
+arch_chroot() {   # This function is no more needed?
+    # Use chroot not arch-chroot because of the way calamares mounts partitions
     chroot /tmp/$chroot_path /bin/bash -c "${1}"
 }  
-
-# Anything to be executed outside chroot need to be here.
-
-# Copy any file from live environment to new system
-
-cp -f /etc/skel/.bashrc /tmp/$chroot_path/home/$NEW_USER/.bashrc
-cp -f /etc/calamares/files/environment /tmp/$chroot_path/etc/environment
-#cp -rf /home/liveuser/.gnupg/gpg.conf /tmp/$chroot_path/etc/pacman.d/gnupg/gpg.conf
 
 _CopyFileToTarget() {
     # Copy a file to target
@@ -80,7 +46,6 @@ _manage_broadcom_wifi_driver() {
         echo "no" > $targetfile
     fi
 }
-
 
 _copy_files(){
     local config_file
@@ -130,8 +95,8 @@ _copy_files(){
     # copy extra drivers from /opt/extra-drivers to target's /opt/extra-drivers
     if [ -n "$(/usr/bin/ls /opt/extra-drivers/*.zst 2>/dev/null)" ] ; then
         _cleaner_msg info "copying extra drivers to target"
-        mkdir -p $target/opt/extra-drivers
-        cp /opt/extra-drivers/*.zst $target/opt/extra-drivers/
+        mkdir -p $target/opt/extra-drivers || _cleaner_msg warning "creating folder /opt/extra-drivers on target failed."
+        cp /opt/extra-drivers/*.zst $target/opt/extra-drivers/ || _cleaner_msg warning "copying drivers to /opt/extra-drivers on target failed."
     fi
     if [ -n "$(lsmod | grep r8168)" ] ; then
         _cleaner_msg info "detected usage of r8168 driver"
@@ -140,8 +105,8 @@ _copy_files(){
 
     _manage_broadcom_wifi_driver
 
-    # copy EncryptOS-release file
-    local file=/usr/lib/EncryptOS-release
+    # copy encryptosos-release file
+    local file=/usr/lib/encryptos-release
     if [ -r $file ] ; then
         if [ ! -r $target$file ] ; then
             _cleaner_msg info "copying $file to target"
@@ -152,4 +117,58 @@ _copy_files(){
     fi
 }
 
-_copy_files
+Main() {
+    _cleaner_msg info "cleaner_script.sh started."
+
+    local ROOT_PATH="" NEW_USER=""
+    local i
+
+    # parse the options
+    for i in "$@"; do
+        case $i in
+            --root=*)
+                ROOT_PATH="${i#*=}"
+                shift
+                ;;
+            --user=*)
+                NEW_USER="${i#*=}"
+                shift
+                ;;
+        esac
+    done
+
+    if [ -n "$ROOT_PATH" ] ; then
+        chroot_path="${ROOT_PATH#/tmp/}"
+    else
+        # "else" needed no more?
+        if [ -f /tmp/chrootpath.txt ]
+        then
+            chroot_path=$(echo ${ROOT_PATH} |sed 's/\/tmp\///')
+        else
+            chroot_path=$(lsblk |grep "calamares-root" |awk '{ print $NF }' |sed -e 's/\/tmp\///' -e 's/\/.*$//' |tail -n1)
+        fi
+    fi
+
+    if [ -z "$chroot_path" ] ; then
+        _cleaner_msg "FATAL ERROR" "cleaner_script.sh: chroot_path is empty!"
+        return  # no point in continuing here
+    fi
+    if [ -z "$NEW_USER" ] ; then
+        _cleaner_msg "error" "cleaner_script.sh: new username is unknown!"
+    fi
+
+    # Copy any file from live environment to new system
+
+    if [ -n "$NEW_USER" ] ; then
+        cp -f /etc/skel/.bashrc /tmp/$chroot_path/home/$NEW_USER/.bashrc
+    fi
+    cp -f /etc/calamares/files/environment /tmp/$chroot_path/etc/environment
+    #cp -rf /home/liveuser/.gnupg/gpg.conf /tmp/$chroot_path/etc/pacman.d/gnupg/gpg.conf
+
+    _copy_files
+
+    _cleaner_msg info "cleaner_script.sh done."
+}
+
+
+Main "$@"

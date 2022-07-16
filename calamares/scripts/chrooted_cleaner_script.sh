@@ -6,6 +6,7 @@
 # Net-install creates the file /tmp/run_once in live environment (need to be transfered to installed system) so it can be used to detect install option
 # ISO-NEXT specific cleanup removals and additions (08-2021) @killajoe and @manuel
 # 01-2022 passing in online and username as params - @dalto
+# 04-2022 small code re-organization - @manuel
 
 _c_c_s_msg() {            # use this to provide all user messages (info, warning, error, ...)
     local type="$1"
@@ -14,29 +15,14 @@ _c_c_s_msg() {            # use this to provide all user messages (info, warning
 }
 
 _pkg_msg() {            # use this to provide all package management messages (install, uninstall)
-    local type="$1"
+    local op="$1"
     local pkgs="$2"
-    case "$type" in
-        remove | uninstall) type="uninstalling" ;;
-        install) type="installing" ;;
+    case "$op" in
+        remove | uninstall) op="uninstalling" ;;
+        install) op="installing" ;;
     esac
-    echo "==> $type $pkgs"
+    echo "==> $op $pkgs"
 }
-
-# parse the options
-for i in "$@"; do
-    case $i in
-        --user=*)
-            NEW_USER="${i#*=}"
-            shift
-        ;;
-        --online)
-            INSTALL_TYPE="online"
-            shift
-        ;;
-    esac
-done
-
 
 _check_internet_connection(){
     eos-connection-checker
@@ -60,12 +46,12 @@ _remove_pkgs_if_installed() {  # this is not meant for offline mode !?
     local removables=()
     for pkgname in "$@" ; do
         if _is_pkg_installed "$pkgname" ; then
-            _pkg_msg remove "removing $pkgname"
+            _pkg_msg remove "$pkgname"
             removables+=("$pkgname")
         fi
     done
     if [ -n "$removables" ] ; then
-        pacman -Rsn --noconfirm "${removables[@]}"
+        pacman -Rs --noconfirm "${removables[@]}"
     fi
 }
 
@@ -169,7 +155,6 @@ _clean_archiso(){
 
     local _files_to_remove=(                               
         /etc/sudoers.d/g_wheel
-        /etc/ssh/sshd_config
         /var/lib/NetworkManager/NetworkManager.state
         /etc/systemd/system/getty@tty1.service.d/autologin.conf
         /etc/systemd/system/getty@tty1.service.d
@@ -178,9 +163,7 @@ _clean_archiso(){
         /etc/systemd/logind.conf.d
         /etc/mkinitcpio-archiso.conf
         /etc/initcpio
-        /home/$NEW_USER/{.wget-hsts,.screenrc,.ICEauthority}
-        /root/{.automated_script.sh,.zlogin,.xinitrc,.xprofile,.wget-hsts,.screenrc,.ICEauthority,set_once.sh,xed.dconf}
-        /root/.config/{qt5ct,Kvantum,dconf}
+        /root/{,.[!.],..?}*
         /etc/motd
         /{gpg.conf,gpg-agent.conf,pubring.gpg,secring.gpg}
         /version
@@ -196,49 +179,52 @@ _clean_archiso(){
 
 _clean_offline_packages(){
 
-    local _packages_to_remove=( 
-    gparted
-    grsync
-    calamares_current
-    calamares_config_default
-    calamares_config_ce
-    edk2-shell
-    boost-libs
-    doxygen
-    expect
-    gpart
-    tcpdump
-    libpwquality
-    refind
-    rate-mirrors
-    kvantum
-    polkit-qt5
-    qt5-declarative
-    qt5-webchannel
-    qt5-webengine
-    qt6-base
-    sonnet
-    kwidgetsaddons
-    kitemviews
-    kguiaddons
-    kdbusaddons
-    kcoreaddons
-    karchive
-    ki18n
-    qt5ct
-    arch-install-scripts
-    squashfs-tools
-    extra-cmake-modules 
-    cmake
-    elinks
-    yaml-cpp
-    syslinux
-    clonezilla
-    ckbcomp
-    xcompmgr
-    memtest86+
-    mkinitcpio-archiso
-    blueberry
+    local _packages_to_remove=(
+
+        # BASE
+
+        ## Base system
+        edk2-shell
+
+        ## Boot
+        refind
+
+
+        # SOFTWARE
+
+        ## Bluetooth
+        blueberry
+
+
+        # ISO
+
+        ## Live iso specific
+        arch-install-scripts
+        memtest86+
+        mkinitcpio-archiso
+        pv
+        syslinux
+
+        ## Live iso tools
+        clonezilla
+        gpart
+        gparted
+        grsync
+        hdparm
+
+
+        # ENCRYPTOS REPO
+
+        ## General
+        rate-mirrors
+
+        ## Calamares EncryptOS
+        calamares_config_ce
+        calamares_config_default
+        calamares_current
+        ckbcomp
+        kvantum
+        qt5ct
     )
 
     # @ does one by one to avoid errors in the entire process
@@ -248,11 +234,11 @@ _clean_offline_packages(){
     local xx
 
     for xx in "${_packages_to_remove[@]}" ; do
-        pacman -Rsc --noconfirm "$xx"
+        pacman -Rsn --noconfirm "$xx"
     done
 }
 
-_EncryptOS(){
+_encryptos(){
     [ -r /root/.bash_profile ] && sed -i "/if/,/fi/"'s/^/#/' /root/.bash_profile
     sed -i "/if/,/fi/"'s/^/#/' /home/$NEW_USER/.bash_profile
 }
@@ -373,6 +359,14 @@ _install_extra_drivers_to_target() {
     fi
 }
 
+_install_more_firmware() {
+    # Install possibly missing firmware packages based on detected hardware
+
+    if [ -n "$(lspci -k | grep "Kernel driver in use: mwifiex_pcie")" ] ; then    # e.g. Microsoft Surface Pro
+        _install_needed_packages linux-firmware-marvell
+    fi
+}
+
 _nvidia_remove() {
     _pkg_msg remove "$*"
     pacman -Rsc --noconfirm "$@"
@@ -383,10 +377,13 @@ _remove_nvidia_drivers() {
 
     if _is_offline_mode ; then
         # delete packages separately to avoid all failing if one fails
-        _nvidia_remove nvidia-dkms
-        _nvidia_remove nvidia-utils
-        _nvidia_remove nvidia-settings
-        _nvidia_remove nvidia-installer-dkms
+        [ -r /usr/share/licenses/nvidia-dkms/LICENSE ]      && _nvidia_remove nvidia-dkms
+        [ -x /usr/bin/nvidia-modprobe ]                     && _nvidia_remove nvidia-utils
+        [ -x /usr/bin/nvidia-settings ]                     && _nvidia_remove nvidia-settings
+        [ -x /usr/bin/nvidia-installer-dkms ]               && _nvidia_remove nvidia-installer-dkms
+        [ -x /usr/bin/nvidia-inst ]                         && _nvidia_remove nvidia-inst
+        [ -r /usr/share/libalpm/hooks/eos-nvidia-fix.hook ] && _nvidia_remove nvidia-hook
+        true
     fi
 }
 
@@ -403,7 +400,7 @@ _manage_nvidia_packages() {
         if [ "$nvidia_driver" = "no" ] ; then
             _remove_nvidia_drivers
         elif [ "$nvidia_card" = "yes" ] ; then
-            _install_needed_packages nvidia-installer-dkms nvidia-dkms
+            _install_needed_packages nvidia-installer-dkms nvidia-inst nvidia-hook nvidia-dkms
             nvidia-installer-kernel-para
         fi
     fi
@@ -464,6 +461,7 @@ _clean_up(){
     _remove_broadcom_wifi_driver
 
     _install_extra_drivers_to_target
+    _install_more_firmware
 
     _misc_cleanups
 
@@ -498,8 +496,8 @@ _desktop_i3(){
         return
     fi
 
-    git clone $(eos-github2gitlab https://github.com/EncryptOS-team/EncryptOS-i3wm-setup.git)
-    pushd EncryptOS-i3wm-setup >/dev/null
+    git clone $(eos-github2gitlab https://github.com/Encrypt-OS/encryptosos-i3wm-setup.git)
+    pushd encryptosos-i3wm-setup >/dev/null
     cp -R .config ~/
     cp -R .config /home/$NEW_USER/                                                
     chmod -R +x ~/.config/i3/scripts /home/$NEW_USER/.config/i3/scripts
@@ -516,7 +514,7 @@ _desktop_i3(){
     cp xed.dconf /home/$NEW_USER/
     chown -R $NEW_USER:$NEW_USER /home/$NEW_USER/
     popd >/dev/null
-    rm -rf EncryptOS-i3wm-setup
+    rm -rf encryptosos-i3wm-setup
 }
 
 _de_wm_config(){
@@ -573,26 +571,57 @@ _run_hotfix_end() {
         _c_c_s_msg $type "cannot fetch $file, no connection."
         return
     fi
-    local url=$(eos-github2gitlab https://raw.githubusercontent.com/EncryptOS-team/ISO-hotfixes/main/$file)
+    local url=$(eos-github2gitlab https://raw.githubusercontent.com/Encrypt-OS/ISO-hotfixes/main/$file)
     wget --timeout=60 -q -O /tmp/$file $url && {
         _c_c_s_msg info "running script $file"
         bash /tmp/$file
     }
 }
 
+Main() {
+    local filename=chrooted_cleaner_script.sh
+
+    _c_c_s_msg info "$filename started."
+
+    local i
+    local NEW_USER="" INSTALL_TYPE=""
+
+    # parse the options
+    for i in "$@"; do
+        case $i in
+            --user=*)
+                NEW_USER="${i#*=}"
+                shift
+                ;;
+            --online)
+                INSTALL_TYPE="online"
+                shift
+                ;;
+        esac
+    done
+    if [ -z "$NEW_USER" ] ; then
+        _c_c_s_msg error "new username is unknown!"
+    fi
+
+    _check_install_mode
+    _encryptos
+    _virtual_machines
+    #_change_config_options
+    #_remove_gnome_software
+    #_remove_discover
+    #_de_wm_config
+    #_setup_personal
+    _clean_up
+    _run_hotfix_end
+
+    rm -rf /etc/calamares /opt/extra-drivers
+
+    _c_c_s_msg info "$filename done."
+}
+
+
 ########################################
 ########## SCRIPT STARTS HERE ##########
 ########################################
 
-_check_install_mode
-_EncryptOS
-_virtual_machines
-#_change_config_options
-#_remove_gnome_software
-#_remove_discover
-#_de_wm_config
-#_setup_personal
-_clean_up
-_run_hotfix_end
-
-rm -rf /etc/calamares /opt/extra-drivers
+Main "$@"

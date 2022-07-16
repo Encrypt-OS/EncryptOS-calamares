@@ -57,43 +57,30 @@ QDialogButtonBox {
 	dialogbuttonbox-buttons-have-icons: 0;
 }
 
-
 #debugButton {
 	background-color: none;
-	font: bold 8px;
-	color: #ffffff;
-	height: 32px;
-    	padding: 0px;
-	border: none;
+	font: 12px;
+	color: #edecf0;
+    height: 32px;
+    border: none;
 }
 
-#debugButton:pressed {
-	color: #7F3FBF;
-}
 
 #debugButton:hover {
-	color: #7F3FBF;
+	color: #ff7f7f;
 }
 
 #aboutButton {
 	background-color: none;
-	font: 16px;
-	color: #000000;
-    	border: none;
-}
-
-#aboutButton:pressed {
-	color: #7F3FBF;
+	font: 12px;
+	color: #edecf0;
+    height: 32px;
+    border: none;
 }
 
 #aboutButton:hover {
-	color: #7F3FBF;
+	color: #ff7f7f;
 }
-
-
-
-
-
 
 /* Partitioning module.
 
