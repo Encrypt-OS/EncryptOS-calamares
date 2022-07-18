@@ -20,7 +20,7 @@ strings:
     shortProductName:    EncryptOS
     version:             2022.07.16
     shortVersion:        2022.07.16
-    versionedName:       MargheritaPizza
+    versionedName:       EncryptOS
     shortVersionedName:  01
     bootloaderEntryName: EncryptOS
     
